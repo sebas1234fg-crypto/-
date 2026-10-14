@@ -1,0 +1,207 @@
+-- ==========================================================
+--  AUTOFARM DUELS: PLAY -> RECOLECTAR -> SERVER HOP (CON JSON)
+-- ==========================================================
+
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- ==========================================================
+-- 1. SISTEMA DE CONFIGURACIÓN JSON (ESTADO PERSISTENTE)
+-- ==========================================================
+local configFileName = "Delta/Autoexecute/DuelSuite_AutoFarmConfig.json"
+local altConfigFileName = "DuelSuite_AutoFarmConfig.json"
+
+local function SaveConfig(state)
+    pcall(function()
+        if writefile then
+            local data = HttpService:JSONEncode({FarmActive = state})
+            writefile(configFileName, data)
+            writefile(altConfigFileName, data)
+        end
+    end)
+end
+
+local function LoadConfig()
+    local state = true -- Por defecto activado al iniciar si no existe el archivo
+    pcall(function()
+        local rawData = nil
+        if readfile then
+            if isfile and isfile(configFileName) then
+                rawData = readfile(configFileName)
+            elseif isfile and isfile(altConfigFileName) then
+                rawData = readfile(altConfigFileName)
+            end
+        end
+        if rawData then
+            local decoded = HttpService:JSONDecode(rawData)
+            if decoded and decoded.FarmActive ~= nil then
+                state = decoded.FarmActive
+            end
+        end
+    end)
+    return state
+end
+
+-- Guardado inicial de autoexecute para la carpeta de Delta
+pcall(function()
+    if writefile then
+        local scriptContent = [[
+-- SCRIPT AUTO-GUARDADO: DUELS AFK AUTOFARM
+task.spawn(function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/..."))()
+end)
+]]
+        writefile("Delta/Autoexecute/autoexec_duels_afk.lua", scriptContent)
+        writefile("Autoexecute/autoexec_duels_afk.lua", scriptContent)
+    end
+end)
+
+-- Limpiar interfaz anterior si existe
+pcall(function()
+    if CoreGui:FindFirstChild("RainbowBeta_AutoFarm") then
+        CoreGui.RainbowBeta_AutoFarm:Destroy()
+    end
+end)
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "RainbowBeta_AutoFarm"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = CoreGui
+
+local FloatBtn = Instance.new("TextButton")
+FloatBtn.Name = "RainbowToggle"
+FloatBtn.Size = UDim2.new(0, 55, 0, 55)
+FloatBtn.Position = UDim2.new(0, 20, 0.4, 0)
+FloatBtn.BackgroundColor3 = Color3.fromRGB(15, 12, 22)
+FloatBtn.Text = "ON"
+FloatBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+FloatBtn.Font = Enum.Font.GothamBold
+FloatBtn.TextSize = 12
+FloatBtn.Parent = ScreenGui
+
+Instance.new("UICorner", FloatBtn).CornerRadius = UDim.new(1, 0)
+
+local StrokeRainbow = Instance.new("UIStroke")
+StrokeRainbow.Thickness = 2.5
+StrokeRainbow.Parent = FloatBtn
+
+-- Animación Rainbow RGB continua
+task.spawn(function()
+    while FloatBtn and FloatBtn.Parent do
+        local hue = tick() % 4 / 4
+        StrokeRainbow.Color = Color3.fromHSV(hue, 1, 1)
+        task.wait(0.05)
+    end
+end)
+
+-- Cargar estado guardado en el JSON (por defecto activo)
+local farmActive = LoadConfig()
+FloatBtn.Text = farmActive and "ON" or "⚡ AFK"
+
+-- Función para dar clic al botón de Play por coordenadas de pantalla
+local function ClickPlayByPosition()
+    pcall(function()
+        local screenX = 145
+        local screenY = 460
+        if VirtualInputManager then
+            VirtualInputManager:SendMouseButtonEvent(screenX, screenY, 0, true, game, 1)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(screenX, screenY, 0, false, game, 1)
+        end
+    end)
+end
+
+-- Función para realizar Server Hop automático
+local function HopServer()
+    pcall(function()
+        local serversUrl = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/servers/Public?sortOrder=Asc&limit=100"
+        local req = (syn and syn.request) or (http and http.request) or http_request or request
+        if req then
+            local res = req({Url = serversUrl, Method = "GET"})
+            if res and res.Body then
+                local body = HttpService:JSONDecode(res.Body)
+                if body and body.data then
+                    for _, s in ipairs(body.data) do
+                        if s.id ~= game.JobId and s.playing < s.maxPlayers then
+                            TeleportService:TeleportToPlaceInstance(game.PlaceId, s.id, LocalPlayer)
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- Bucle principal del ciclo: Play -> Recolectar partida -> Server Hop
+task.spawn(function()
+    while true do
+        task.wait(1.0)
+        if farmActive and LocalPlayer.Character then
+            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                -- PASO 1: Darle clic al botón Play para iniciar
+                ClickPlayByPosition()
+                task.wait(2.0)
+
+                local collectedItems = {}
+                local itemsFoundInMatch = 0
+
+                -- PASO 2: Recolectar todos los objetos de la partida actual
+                local startTime = tick()
+                while farmActive and (tick() - startTime < 15) do
+                    local foundAny = false
+                    for _, obj in pairs(workspace:GetDescendants()) do
+                        if not farmActive then break end
+                        if obj and obj.Parent and not collectedItems[obj] then
+                            local name = string.lower(obj.Name)
+                            if string.find(name, "coin") or string.find(name, "moneda") or string.find(name, "pumpkin") or string.find(name, "calabaza") then
+                                local targetPart = nil
+                                if obj:IsA("BasePart") then
+                                    targetPart = obj
+                                elseif obj:IsA("Model") then
+                                    targetPart = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+                                end
+
+                                if targetPart then
+                                    foundAny = true
+                                    itemsFoundInMatch = itemsFoundInMatch + 1
+                                    collectedItems[obj] = true
+                                    hrp.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
+                                    task.wait(0.25)
+                                end
+                            end
+                        end
+                    end
+                    if not foundAny and itemsFoundInMatch > 0 then
+                        break
+                    end
+                    task.wait(0.5)
+                end
+
+                -- PASO 3: Al terminar de recolectar, cambiar de servidor
+                if farmActive then
+                    HopServer()
+                    task.wait(5.0)
+                end
+            end
+        end
+    end
+end)
+
+-- Activar / Desactivar con el botón flotante y guardar en JSON
+FloatBtn.MouseButton1Click:Connect(function()
+    farmActive = not farmActive
+    FloatBtn.Text = farmActive and "ON" or "⚡ AFK"
+    SaveConfig(farmActive)
+    if farmActive then
+        ClickPlayByPosition()
+    end
+end)
