@@ -1,0 +1,59 @@
+local SCRIPT_URL = "https://raw.githubusercontent.com/sebas1234fg-crypto/Proyectos-finalizados/refs/heads/main/Duelos%20key%20final"
+local LOADER_KEY = "DuelosKeyFinal_Loaded"
+
+local env = (getgenv and getgenv()) or _G
+
+if env[LOADER_KEY] then
+    warn("[Loader]: El script ya se encuentra en ejecución.")
+    return
+end
+
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
+local StarterGui = game:GetService("StarterGui")
+
+local function notify(title, text, duration)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = title,
+            Text = text,
+            Duration = duration or 4
+        })
+    end)
+end
+
+local fetchSuccess, response = pcall(function()
+    return game:HttpGet(SCRIPT_URL, true)
+end)
+
+if not fetchSuccess or type(response) ~= "string" or #response == 0 then
+    warn("[Loader]: Error al conectar con el servidor o respuesta vacía.")
+    notify("Error de Carga", "No se pudo descargar el script. Revisa tu conexión.", 5)
+    return
+end
+
+if response:match("^%s*404:") or response:match("^%s*<!DOCTYPE html>") then
+    warn("[Loader]: El enlace del script no es válido o fue eliminado (404).")
+    notify("Error 404", "El archivo remoto no fue encontrado.", 5)
+    return
+end
+
+local compiledFunc, compileError = loadstring(response)
+
+if not compiledFunc then
+    warn("[Loader]: Error de sintaxis en el script remoto -> " .. tostring(compileError))
+    notify("Error de Compilación", "El script contiene errores internos.", 5)
+    return
+end
+
+env[LOADER_KEY] = true
+
+local execSuccess, execError = pcall(compiledFunc)
+
+if not execSuccess then
+    env[LOADER_KEY] = nil
+    warn("[Loader]: Error durante la ejecución -> " .. tostring(execError))
+    notify("Error de Ejecución", "El script falló al iniciar.", 5)
+end
